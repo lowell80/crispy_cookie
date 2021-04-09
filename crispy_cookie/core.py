@@ -20,15 +20,25 @@ class TemplateCollection:
             self._templates[name] = TemplateInfo(self.root / name)
         return self._templates[name]
 
+    def list_templates(self):
+        templates = [p.parent.name for p in self.root.glob("*/cookiecutter.json")]
+        templates.sort()
+        return templates
+
 
 class TemplateInfo:
 
     def __init__(self, path: Path):
         self.name = path.name
         self.path = path
+        self._meta = None
         self.context_file = path / "cookiecutter.json"
+        self.metadata_file = path / "crispycookie.json"
         if not self.context_file.is_file():
             raise TemplateError(f"{self.context_file} is not a file!")
+        if not self.metadata_file.is_file():
+            raise TemplateError(f"{self.metadat_file} is not present.  "
+                                "This directory is not a crispycookie template.")
         candidates = [p for p in path.glob("*{{*") if p.is_dir()]
         if not candidates:
             raise TemplateError(f"Can't find the top-level project for {path}")
@@ -37,9 +47,37 @@ class TemplateInfo:
                                 f"project {path}.  Candidates include:"
                                 f": {[str(c) for c in candidates]}")
         self.template_base = candidates[0]
+        self.parse_metadata()
+
+    def parse_metadata(self):
+        with open(self.metadata_file) as f:
+            metadata = json.load(f)
+        meta = {
+            "extends": [],
+            "inherits": [],
+        }
+        meta["default_layer_name"] = metadata["default_layer_name"]
+        if "extends" in metadata:
+            # Only single values is supporte for now, but internally make it a list
+            meta["extends"] = [metadata["extends"]]
+        if "inherits" in metadata:
+            meta["inherits"] = [str(var) for var in metadata["inherits"]]
+        self._meta = meta
 
     @property
     def default_context(self):
         with open(self.context_file) as f:
             return json.load(f)
+
+    @property
+    def inherits(self):
+        return self._meta["inherits"]
+
+    @property
+    def default_layer_name(self):
+        return self._meta["default_layer_name"]
+
+    @property
+    def extends(self):
+        return self._meta["extends"]
 
