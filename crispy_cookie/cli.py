@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
 """Console script for crispy_cookie."""
 
-import sys
-from .core import TemplateError, TemplateInfo, TemplateCollection
-from argparse import ArgumentParser, FileType
-from pathlib import Path
 import json
-import shutil
-from cookiecutter.prompt import prompt_for_config
-from cookiecutter.generate import generate_files
+import sys
+from argparse import ArgumentParser, FileType
 from collections import Counter
+from pathlib import Path
 from tempfile import TemporaryDirectory
+
+from cookiecutter.environment import StrictEnvironment
+from cookiecutter.generate import generate_files
+from cookiecutter.prompt import prompt_for_config, render_variable
+
+from .core import TemplateCollection, TemplateError, TemplateInfo
+
+# XXX:  Could use cookiecutter.repository.determine_repo_dir to fetch remote git
 
 
 def do_list(template_collection: TemplateCollection, args):
@@ -91,7 +95,21 @@ def do_config(template_collection: TemplateCollection, args):
 
 
 def generate_layer(template : TemplateInfo, layer: dict, tmp_path: Path):
-    context = { "cookiecutter": layer["cookiecutter"] }
+    data = layer["cookiecutter"]
+    context = { "cookiecutter": data }
+    env = StrictEnvironment(context=context)
+
+    for (key, value) in template.default_context.items():
+        if key not in data:
+            if "{{" in value:
+                expanded_value = render_variable(env, value, data)
+                ## expanded_value = env.from_string(value).render(data)
+                print(f"Missing config for '{key}', using default value of {expanded_value} rendered from {value}")
+                value = expanded_value
+            else:
+                print(f"Missing config for '{key}', using default value of {value}")
+            data[key] = value
+
     out_dir = tmp_path / "build" / f"layer-{layer['name']}"
     out_dir.mkdir(parents=True)
     template_path = str(template.path)
@@ -107,6 +125,7 @@ def generate_layer(template : TemplateInfo, layer: dict, tmp_path: Path):
 def do_build(template_collection: TemplateCollection, args):
     config = json.load(args.config)
     layers = config["layers"]
+    output = Path(args.output)
 
     with TemporaryDirectory() as tmp_dir:
         tmpdir_path = Path(tmp_dir)
@@ -116,6 +135,7 @@ def do_build(template_collection: TemplateCollection, args):
             template = template_collection.get_template(layer["name"])
             layer_dir = generate_layer(template, layer, tmpdir_path)
             layer_dirs.append(layer_dir)
+            print("")
 
         top_level_names = [ld.name for ld in layer_dirs]
         if len(set(top_level_names)) > 1:
@@ -123,7 +143,7 @@ def do_build(template_collection: TemplateCollection, args):
         top_level = top_level_names[0]
 
         stage_folder = tmpdir_path / top_level
-        output_folder = Path(args.output) / top_level
+        output_folder = output / top_level
 
         if output_folder.is_dir():
             if args.overwrite:
@@ -144,26 +164,28 @@ def do_build(template_collection: TemplateCollection, args):
         print(f"Copying generated files to {output_folder}")
         _copy_tree(stage_folder, output_folder)
 
+    for layer in layers:
+        for clean_var in ["_extensions"]:
+            if clean_var in layer["cookiecutter"]:
+                del layer["cookiecutter"][clean_var]
+
+    with open(output_folder / ".crispycookie.json", "w") as fp:
+        json.dump(config, fp, indent=4)
+
 
 def _copy_tree(src: Path, dest: Path, layer_info=None):
     if not dest.is_dir():
-        if dest.exists():
-            raise ValueError(f"{dest} exists, but is not a directory")
-        else:
-            dest.mkdir()
+        dest.mkdir()
     for p in src.iterdir():
         d = dest / p.name
         if p.is_file():
-            if d.is_file():
-                if layer_info:
-                    print(f"Layer {layer_info} has overwritten {d}")
-            shutil.copy2(p, d)
+            if d.is_file() and layer_info:
+                print(f"Layer {layer_info} has overwritten {d}")
+            p.rename(d)
         elif p.is_dir():
             _copy_tree(p, d, layer_info)
         else:
             raise ValueError(f"Unsupported file type {p}")
-
-
 
 
 def main():
