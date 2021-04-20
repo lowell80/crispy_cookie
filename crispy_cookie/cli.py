@@ -11,7 +11,10 @@ from tempfile import TemporaryDirectory
 from cookiecutter.environment import StrictEnvironment
 from cookiecutter.generate import generate_files
 from cookiecutter.prompt import prompt_for_config, render_variable
+# from cookiecutter.repository import determine_repo_dir
+from cookiecutter.vcs import clone
 
+from . import __version__
 from .core import TemplateCollection, TemplateError, TemplateInfo
 
 # XXX:  Could use cookiecutter.repository.determine_repo_dir to fetch remote git
@@ -121,9 +124,22 @@ def generate_layer(template: TemplateInfo, layer: dict, tmp_path: Path):
 
 
 def do_build(template_collection: TemplateCollection, args):
-    config = json.load(args.config)
-    layers = config["layers"]
     output = Path(args.output)
+    if args.config:
+        print(f"Doing a fresh build.  Output will be written under {output}")
+        config = json.load(args.config)
+    else:
+        config_file = output / ".crispycookie.json"
+        if not config_file.is_file():
+            print("Missing {config} file.  Refusing to rebuild {output.name}", file=sys.stderr)
+            return 1
+        print(f"Regenerating a project {output.name} from existing {config_file.name}")
+        # This seems silly, but to keep with the existing convention
+        output = output.parent
+        with open(config_file) as f:
+            config = json.load(f)
+
+    layers = config["layers"]
 
     with TemporaryDirectory() as tmp_dir:
         tmpdir_path = Path(tmp_dir)
@@ -187,15 +203,23 @@ def _copy_tree(src: Path, dest: Path, layer_info=None):
 
 
 def main():
+    def add_repo_args(parser):
+        parser.add_argument("repo", help="Path to local or remote repository "
+                            "containing templates")
+        parser.add_argument("-c", "--checkout", help="Branch, tag, or commit "
+                            "to checkout from git repository.")
     parser = ArgumentParser()
     parser.set_defaults(function=None)
-    parser.add_argument("--root", default=".")
+    parser.add_argument('--version', action='version',
+                        version='%(prog)s {version}'.format(version=__version__))
+
     subparsers = parser.add_subparsers()
 
     config_parser = subparsers.add_parser(
         "config",
         description="Make a fresh configuration based on named template layers")
     config_parser.set_defaults(function=do_config)
+    add_repo_args(config_parser)
     config_parser.add_argument("templates",
                                nargs="+",
                                metavar="TEMPLATE",
@@ -209,15 +233,21 @@ def main():
     list_parser = subparsers.add_parser("list",
                                         description="List available template layers")
     list_parser.set_defaults(function=do_list)
+    add_repo_args(list_parser)
+    config_parser.add_argument("repo", help="Path to local or remote repository "
+                               " containing template layers")
 
     build_parser = subparsers.add_parser("build",
                                          description="Build from a config file")
     build_parser.set_defaults(function=do_build)
-    build_parser.add_argument("config", type=FileType("r"),
-                              help="JSON config file")
+    add_repo_args(build_parser)
+    build_parser.add_argument("--config", type=FileType("r"),
+                              help="JSON config file.  Needed the first time "
+                              "a project is built.")
     build_parser.add_argument("-o", "--output",
                               default=".", metavar="DIR",
-                              help="Output directory")
+                              help="Top-level output directory.  Or the project "
+                              "folder whenever doing a rebuild.")
     build_parser.add_argument("--overwrite", action="store_true", default=False)
 
     args = parser.parse_args()
@@ -225,7 +255,11 @@ def main():
         sys.stderr.write(parser.format_usage())
         sys.exit(1)
 
-    tc = TemplateCollection(Path(args.root))
+    abbreviations = {}
+    local_clone_dir = "~/.crispy_cookie/repos"
+    template_dir = clone(args.repo, args.checkout, local_clone_dir, True)
+
+    tc = TemplateCollection(Path(template_dir))
     return args.function(tc, args)
 
 
