@@ -138,6 +138,8 @@ def do_build(template_collection: TemplateCollection, args):
             return 1
         print(f"Regenerating a project {output.name} from existing {config_file.name}")
         # This seems silly, but to keep with the existing convention
+        if output.name == "":
+            output = output.absolute()
         output = output.parent
         with open(config_file) as f:
             config = json.load(f)
