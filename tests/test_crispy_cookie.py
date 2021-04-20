@@ -5,7 +5,7 @@
 
 import unittest
 
-from crispy_cookie import crispy_cookie
+import crispy_cookie
 
 
 class TestCrispy_cookie(unittest.TestCase):

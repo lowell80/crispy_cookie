@@ -80,4 +80,3 @@ class TemplateInfo:
     @property
     def extends(self):
         return self._meta["extends"]
-

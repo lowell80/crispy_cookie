@@ -41,7 +41,6 @@ def do_config(template_collection: TemplateCollection, args):
     if args.templates != templates:
         print(f"Template list expanded to:  {templates}")
 
-
     shared_args = {}
 
     for template_name in templates:
@@ -61,8 +60,8 @@ def do_config(template_collection: TemplateCollection, args):
         '''
         context["layer"] = layer_name
         print(f"{template_name} {n}:  layer={layer_name}"
-        #      f"  Context:  {context}"
-        )
+              #      f"  Context:  {context}"
+              )
         layer = {
             "name": tmp.name,
             "layer_name": layer_name,
@@ -75,7 +74,6 @@ def do_config(template_collection: TemplateCollection, args):
         for var in tmp.inherits:
             if var in shared_args:
                 cc_context["cookiecutter"][var] = shared_args[var]
-
 
         # Prompt the user
         final = prompt_for_config(cc_context)
@@ -94,9 +92,9 @@ def do_config(template_collection: TemplateCollection, args):
     json.dump(doc, args.output, indent=4)
 
 
-def generate_layer(template : TemplateInfo, layer: dict, tmp_path: Path):
+def generate_layer(template: TemplateInfo, layer: dict, tmp_path: Path):
     data = layer["cookiecutter"]
-    context = { "cookiecutter": data }
+    context = {"cookiecutter": data}
     env = StrictEnvironment(context=context)
 
     for (key, value) in template.default_context.items():
@@ -117,7 +115,7 @@ def generate_layer(template : TemplateInfo, layer: dict, tmp_path: Path):
     # Run cookiecutter in a temporary directory
     project_dir = generate_files(template_path, context, output_dir=str(out_dir))
     #out_projects = [i for i in out_dir.iterdir() if i.is_dir()]
-    #if len(out_projects) > 1:
+    # if len(out_projects) > 1:
     #    raise ValueError("Template generated more than one output folder!")
     return Path(project_dir)
 
@@ -208,7 +206,6 @@ def main():
     config_parser.add_argument("-o", "--output", type=FileType("w"),
                                default=sys.stdout)
 
-
     list_parser = subparsers.add_parser("list",
                                         description="List available template layers")
     list_parser.set_defaults(function=do_list)
@@ -222,8 +219,6 @@ def main():
                               default=".", metavar="DIR",
                               help="Output directory")
     build_parser.add_argument("--overwrite", action="store_true", default=False)
-
-
 
     args = parser.parse_args()
     if args.function is None:

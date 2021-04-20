@@ -2,7 +2,7 @@
 
 """The setup script."""
 
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 with open('README.rst') as readme_file:
     readme = readme_file.read()
@@ -13,9 +13,9 @@ with open('HISTORY.rst') as history_file:
 with open('requirements.txt') as requirements_file:
     requirements = requirements_file.readlines()
 
-setup_requirements = [ ]
+setup_requirements = []
 
-test_requirements = [ ]
+test_requirements = []
 
 setup(
     author="Lowell Alleman",
