@@ -131,7 +131,7 @@ def do_build(template_collection: TemplateCollection, args):
     else:
         config_file = output / ".crispycookie.json"
         if not config_file.is_file():
-            print("Missing {config} file.  Refusing to rebuild {output.name}", file=sys.stderr)
+            print(f"Missing {config} file.  Refusing to rebuild {output.name}", file=sys.stderr)
             return 1
         print(f"Regenerating a project {output.name} from existing {config_file.name}")
         # This seems silly, but to keep with the existing convention
