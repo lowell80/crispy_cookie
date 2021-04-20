@@ -95,7 +95,7 @@ def do_config(template_collection: TemplateCollection, args):
     json.dump(doc, args.output, indent=4)
 
 
-def generate_layer(template: TemplateInfo, layer: dict, tmp_path: Path):
+def generate_layer(template: TemplateInfo, layer: dict, tmp_path: Path, repo_path: str):
     data = layer["cookiecutter"]
     context = {"cookiecutter": data}
     env = StrictEnvironment(context=context)
@@ -114,7 +114,7 @@ def generate_layer(template: TemplateInfo, layer: dict, tmp_path: Path):
     out_dir = tmp_path / "build" / f"layer-{layer['name']}"
     out_dir.mkdir(parents=True)
     template_path = str(template.path)
-    context["cookiecutter"]["_template"] = template_path
+    context["cookiecutter"]["_template"] = f"{repo_path}/{template.path.name}"
     # Run cookiecutter in a temporary directory
     project_dir = generate_files(template_path, context, output_dir=str(out_dir))
     #out_projects = [i for i in out_dir.iterdir() if i.is_dir()]
@@ -147,7 +147,7 @@ def do_build(template_collection: TemplateCollection, args):
         for layer in layers:
             print(f"EXECUTING cookiecutter {layer['name']} template for layer {layer['layer_name']}")
             template = template_collection.get_template(layer["name"])
-            layer_dir = generate_layer(template, layer, tmpdir_path)
+            layer_dir = generate_layer(template, layer, tmpdir_path, args.repo)
             layer_dirs.append(layer_dir)
             print("")
 
@@ -183,6 +183,10 @@ def do_build(template_collection: TemplateCollection, args):
             if clean_var in layer["cookiecutter"]:
                 del layer["cookiecutter"][clean_var]
 
+    config["tool_info"] = {
+        "program": "CrispyCookie",
+        "version": __version__,
+    }
     with open(output_folder / ".crispycookie.json", "w") as fp:
         json.dump(config, fp, indent=4)
 
