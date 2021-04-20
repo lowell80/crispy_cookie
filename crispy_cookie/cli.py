@@ -238,8 +238,6 @@ def main():
                                         description="List available template layers")
     list_parser.set_defaults(function=do_list)
     add_repo_args(list_parser)
-    config_parser.add_argument("repo", help="Path to local or remote repository "
-                               " containing template layers")
 
     build_parser = subparsers.add_parser("build",
                                          description="Build from a config file")
