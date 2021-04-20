@@ -125,13 +125,16 @@ def generate_layer(template: TemplateInfo, layer: dict, tmp_path: Path, repo_pat
 
 def do_build(template_collection: TemplateCollection, args):
     output = Path(args.output)
+    if not output.is_dir():
+        print(f"Missing output directory {output}", file=sys.stderr)
+        return 1
     if args.config:
         print(f"Doing a fresh build.  Output will be written under {output}")
         config = json.load(args.config)
     else:
         config_file = output / ".crispycookie.json"
         if not config_file.is_file():
-            print(f"Missing {config} file.  Refusing to rebuild {output.name}", file=sys.stderr)
+            print(f"Missing {config_file} file.  Refusing to rebuild {output.name}", file=sys.stderr)
             return 1
         print(f"Regenerating a project {output.name} from existing {config_file.name}")
         # This seems silly, but to keep with the existing convention
