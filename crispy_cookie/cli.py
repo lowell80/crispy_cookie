@@ -11,13 +11,10 @@ from tempfile import TemporaryDirectory
 from cookiecutter.environment import StrictEnvironment
 from cookiecutter.generate import generate_files
 from cookiecutter.prompt import prompt_for_config, render_variable
-# from cookiecutter.repository import determine_repo_dir
 from cookiecutter.vcs import clone
 
 from . import __version__
 from .core import TemplateCollection, TemplateError, TemplateInfo
-
-# XXX:  Could use cookiecutter.repository.determine_repo_dir to fetch remote git
 
 
 def do_list(template_collection: TemplateCollection, args):
@@ -125,6 +122,7 @@ def generate_layer(template: TemplateInfo, layer: dict, tmp_path: Path, repo_pat
 
 def do_build(template_collection: TemplateCollection, args):
     output = Path(args.output)
+    output_folder = None
     if not output.is_dir():
         print(f"Missing output directory {output}", file=sys.stderr)
         return 1
@@ -138,9 +136,7 @@ def do_build(template_collection: TemplateCollection, args):
             return 1
         print(f"Regenerating a project {output.name} from existing {config_file.name}")
         # This seems silly, but to keep with the existing convention
-        if output.name == "":
-            output = output.absolute()
-        output = output.parent
+        output_folder = output
         with open(config_file) as f:
             config = json.load(f)
 
@@ -162,13 +158,16 @@ def do_build(template_collection: TemplateCollection, args):
         top_level = top_level_names[0]
 
         stage_folder = tmpdir_path / top_level
-        output_folder = output / top_level
+
+        if output_folder is None:
+            output_folder = output / top_level
 
         if output_folder.is_dir():
             if args.overwrite:
-                sys.stderr.write(f"Overwriting output directory {output_folder}, as requested.\n")
+                folder_name = output_folder.absolute().name if output_folder.name == "" else output_folder
+                sys.stderr.write(f"Overwriting output directory {folder_name}, as requested.\n")
             else:
-                sys.stderr.write(f"Output directory {output_folder} already exists.  "
+                sys.stderr.write(f"Output directory {output_folder.absolute()} already exists.  "
                                  "Refusing to overwrite.\n")
                 sys.exit(1)
 
@@ -178,7 +177,7 @@ def do_build(template_collection: TemplateCollection, args):
         for i, layer_dir in enumerate(layer_dirs):
             layer_info = layers[i]
             layer_name = layer_info["name"]
-            _copy_tree(layer_dir, stage_folder)
+            _copy_tree(layer_dir, stage_folder, layer_info=layer_name)
 
         print(f"Copying generated files to {output_folder}")
         _copy_tree(stage_folder, output_folder)
@@ -204,7 +203,7 @@ def _copy_tree(src: Path, dest: Path, layer_info=None):
         if p.is_file():
             if d.is_file() and layer_info:
                 print(f"Layer {layer_info} has overwritten {d}")
-            p.rename(d)
+            p.replace(d)
         elif p.is_dir():
             _copy_tree(p, d, layer_info)
         else:
