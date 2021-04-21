@@ -111,7 +111,7 @@ def generate_layer(template: TemplateInfo, layer: dict, tmp_path: Path, repo_pat
                 print(f"Missing config for '{key}', using default value of {value}")
             data[key] = value
 
-    out_dir = tmp_path / "build" / f"layer-{layer['name']}"
+    out_dir = tmp_path / "build" / f"layer-{layer['layer_name']}"
     out_dir.mkdir(parents=True)
     template_path = str(template.path)
     context["cookiecutter"]["_template"] = f"{repo_path}/{template.path.name}"
