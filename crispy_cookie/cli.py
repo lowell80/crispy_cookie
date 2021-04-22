@@ -2,9 +2,11 @@
 """Console script for crispy_cookie."""
 
 import json
+import re
 import sys
 from argparse import ArgumentParser, FileType
 from collections import Counter
+from copy import deepcopy
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -15,6 +17,26 @@ from cookiecutter.vcs import clone
 
 from . import __version__
 from .core import TemplateCollection, TemplateError, TemplateInfo
+
+HIDDEN_VAR = re.compile(r"^_.*")
+
+DO_NOT_INHERIT = [
+    "layer",
+    HIDDEN_VAR,
+]
+
+
+def dict_without_keys(d: dict, *keys):
+    """ Return a copy of dict d without the given set of keys """
+    d = dict(d)
+    for key in keys:
+        if hasattr(key, "match"):
+            for k in list(d):
+                if key.match(k):
+                    del d[k]
+        elif key in d:
+            del d[key]
+    return d
 
 
 def do_list(template_collection: TemplateCollection, args):
@@ -44,6 +66,7 @@ def do_config(template_collection: TemplateCollection, args):
     shared_args = {}
 
     for template_name in templates:
+        print(f"*** Handing template {template_name} ***")
         tmp = template_collection.get_template(template_name)
         layer_count[tmp.name] += 1
         n = layer_count[tmp.name]
@@ -70,43 +93,90 @@ def do_config(template_collection: TemplateCollection, args):
 
         cc_context = {"cookiecutter": context}
 
+        cc_inherited = {}
         # Apply inherited variables
         for var in tmp.inherits:
             if var in shared_args:
-                cc_context["cookiecutter"][var] = shared_args[var]
+                # Block from prompting for this var
+                value = shared_args[var]
+                cc_inherited[var] = value
+                print(f"   Inheriting {var}={value}")
+                cc_context["cookiecutter"][var] = value
+            else:
+                print(f"   Missing inherited {var}.  Will prompt")
+
+        # No need to prompt for ephemeral cookiecutter variables
+        for var in tmp.ephemeral:
+            print(f"   Skipping prompt for {var} as it is ephemeral")
+            cc_context["cookiecutter"].pop(var, None)
+
+        # XXX: Should we also skip prompting for inherited variables?
 
         # Prompt the user
         final = prompt_for_config(cc_context)
 
-        layer["cookiecutter"] = final
+        layer["cookiecutter"] = dict_without_keys(final, HIDDEN_VAR)
         layer["layer_name"] = final["layer"]
 
         # Update shared args for next layer to inherit from
-        final2 = dict(final)
-        for var_name in ["layer", "_extensions"]:
-            if var_name in final2:
-                final2.pop(var_name)
-        shared_args.update(final2)
+        shared_args.update(dict_without_keys(final, *DO_NOT_INHERIT))
+
+        # Remove any inherited variables that were NOT updated, and allow them
+        # to be inherited at 'build' time.  Reduces redundancy in crispycookie.json
+        for key, value in cc_inherited.items():
+            if layer["cookiecutter"][key] == value:
+                # print(f"   Cleaning out redundant {key}={value} for this layer")
+                del layer["cookiecutter"][key]
 
         layers.append(layer)
+        print("")
+
     json.dump(doc, args.output, indent=4)
 
 
-def generate_layer(template: TemplateInfo, layer: dict, tmp_path: Path, repo_path: str):
+def no_print(*a, **kw):
+    pass
+
+
+_print = print
+
+
+def generate_layer(template: TemplateInfo, layer: dict, tmp_path: Path, repo_path: str, inherited_vars: dict = None, verbose: bool = False):
     data = layer["cookiecutter"]
     context = {"cookiecutter": data}
     env = StrictEnvironment(context=context)
 
+    if verbose:
+        print = _print
+    else:
+        print = no_print
+
+    # Default any variables defined in cookiecutter.json but missing from .crispycookie.json
+    defaulted_at_runtime = []
     for (key, value) in template.default_context.items():
         if key not in data:
-            if "{{" in value:
+            if inherited_vars and \
+                    key in template.inherits and \
+                    key in inherited_vars:
+                # Make a deepcopy here so that updates in a prior template can't change an
+                # earlier layer's data after the fact.  Isn't mutable fun?!?
+                value = deepcopy(inherited_vars[key])
+                print(f"Inheriting '{key}' from prior layer.")
+            elif "{{" in value:
                 expanded_value = render_variable(env, value, data)
                 ## expanded_value = env.from_string(value).render(data)
                 print(f"Missing config for '{key}', using default value of {expanded_value} rendered from {value}")
                 value = expanded_value
+            elif key.startswith("_"):
+                # Prevent reporting _extensions and so on...
+                pass
             else:
                 print(f"Missing config for '{key}', using default value of {value}")
+            defaulted_at_runtime.append(key)
             data[key] = value
+
+    # TODO:  Rewrite the dictionary to be in the same order as the cookiecutter.json, with any
+    #        unknown elements being kept in their original order as well
 
     out_dir = tmp_path / "build" / f"layer-{layer['layer_name']}"
     out_dir.mkdir(parents=True)
@@ -117,10 +187,31 @@ def generate_layer(template: TemplateInfo, layer: dict, tmp_path: Path, repo_pat
     #out_projects = [i for i in out_dir.iterdir() if i.is_dir()]
     # if len(out_projects) > 1:
     #    raise ValueError("Template generated more than one output folder!")
+
+    # Remove from context any variables that were added from cookiecutter.json that are also marked
+    # as ephemeral.  Ephemeral variables stored in crispycookie.json (hopefully, on purpose) will be preserved.
+    for key in defaulted_at_runtime:
+        block = False
+        if key in template.ephemeral:
+            block = "it is ephemeral"
+        elif key in template.inherits:
+            block = "of inheritance"
+        if block:
+            print(f"Preventing explicit retention of {key} because {block}")
+            data.pop(key)
+        elif key.startswith("_"):
+            pass
+        else:
+            print(f"Retaining {key} because it was explicitly set")
+
+    if inherited_vars is not None:
+        inherited_vars.update(dict_without_keys(data, *DO_NOT_INHERIT))
+
     return Path(project_dir)
 
 
 def do_build(template_collection: TemplateCollection, args):
+    verbose = args.verbose
     output = Path(args.output)
     output_folder = None
     if not output.is_dir():
@@ -141,6 +232,7 @@ def do_build(template_collection: TemplateCollection, args):
             config = json.load(f)
 
     layers = config["layers"]
+    inheritance_store = {}
 
     with TemporaryDirectory() as tmp_dir:
         tmpdir_path = Path(tmp_dir)
@@ -148,7 +240,8 @@ def do_build(template_collection: TemplateCollection, args):
         for layer in layers:
             print(f"EXECUTING cookiecutter {layer['name']} template for layer {layer['layer_name']}")
             template = template_collection.get_template(layer["name"])
-            layer_dir = generate_layer(template, layer, tmpdir_path, args.repo)
+            layer_dir = generate_layer(template, layer, tmpdir_path, args.repo,
+                                       inherited_vars=inheritance_store, verbose=verbose)
             layer_dirs.append(layer_dir)
             print("")
 
@@ -255,6 +348,8 @@ def main():
                               help="Top-level output directory.  Or the project "
                               "folder whenever doing a rebuild.")
     build_parser.add_argument("--overwrite", action="store_true", default=False)
+    build_parser.add_argument("--verbose", action="store_true", default=False,
+                              help="More output for var handling and such")
 
     args = parser.parse_args()
     if args.function is None:
@@ -262,8 +357,14 @@ def main():
         sys.exit(1)
 
     abbreviations = {}
+
     local_clone_dir = "~/.crispy_cookie/repos"
-    template_dir = clone(args.repo, args.checkout, local_clone_dir, True)
+
+    if Path(args.repo).expanduser().is_dir():
+        template_dir = args.repo
+    else:
+        # Assume remote repository
+        template_dir = clone(args.repo, args.checkout, local_clone_dir, True)
 
     tc = TemplateCollection(Path(template_dir))
     return args.function(tc, args)

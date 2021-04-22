@@ -55,13 +55,19 @@ class TemplateInfo:
         meta = {
             "extends": [],
             "inherits": [],
+            "ephemeral": [],
         }
         meta["default_layer_name"] = metadata["default_layer_name"]
         if "extends" in metadata:
-            # Only single values is supporte for now, but internally make it a list
+            # Only single values is supported for now, but internally make it a list
             meta["extends"] = [metadata["extends"]]
         if "inherits" in metadata:
             meta["inherits"] = [str(var) for var in metadata["inherits"]]
+        if "ephemeral" in metadata:
+            ephemeral = metadata["ephemeral"]
+            if isinstance(ephemeral, str):
+                ephemeral = [ephemeral]
+            meta["ephemeral"] = [str(var) for var in ephemeral]
         self._meta = meta
 
     @property
@@ -71,6 +77,8 @@ class TemplateInfo:
 
     @property
     def inherits(self):
+        """ inherits allows variables from a prior layer to be copied down into
+        the current layer. """
         return self._meta["inherits"]
 
     @property
@@ -79,4 +87,17 @@ class TemplateInfo:
 
     @property
     def extends(self):
+        """ extends is means to declare that one layer requires another layer.
+        """
         return self._meta["extends"]
+
+    @property
+    def ephemeral(self):
+        """ ephemeral values are NOT stored in the crispycookie.json file and
+        therefore are re-calculated or inherited from the cookiecutter.json file
+        each time a project is built.
+
+        If the values is manually placed in the crispycookie.json file, it will
+        be preserved.
+        """
+        return self._meta["ephemeral"]
