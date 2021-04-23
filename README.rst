@@ -6,8 +6,9 @@ Crispy Cookie
 .. image:: https://img.shields.io/pypi/v/crispy_cookie.svg
         :target: https://pypi.python.org/pypi/crispy_cookie
 
-.. image:: https://img.shields.io/travis/lowell80/crispy_cookie.svg
-        :target: https://travis-ci.com/lowell80/crispy_cookie
+.. image:: https://github.com/lowell80/crispy_cookie/actions/workflows/python-publish.yml/badge.svg
+        :target: https://github.com/lowell80/crispy_cookie/actions/workflows/python-publish.yml
+        :alt: Upload Python Package
 
 .. image:: https://readthedocs.org/projects/crispy-cookie/badge/?version=latest
         :target: https://crispy-cookie.readthedocs.io/en/latest/?version=latest
