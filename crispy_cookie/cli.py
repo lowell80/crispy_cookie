@@ -360,9 +360,15 @@ def main():
 
     local_clone_dir = "~/.crispy_cookie/repos"
 
-    if Path(args.repo).expanduser().is_dir():
-        template_dir = args.repo
-    else:
+    # Try local directory first.  (is_dir() may fail with git url)
+    template_dir = None
+    try:
+        if Path(args.repo).expanduser().is_dir():
+            template_dir = args.repo
+    except OSError:
+        pass
+
+    if not template_dir:
         # Assume remote repository
         template_dir = clone(args.repo, args.checkout, local_clone_dir, True)
 
