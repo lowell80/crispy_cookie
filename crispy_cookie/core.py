@@ -58,6 +58,7 @@ class TemplateInfo:
             "ephemeral": [],
         }
         meta["default_layer_name"] = metadata["default_layer_name"]
+        meta["default_layer_mounts"] = metadata["default_layer_mounts"]
         if "extends" in metadata:
             # Only single values is supported for now, but internally make it a list
             meta["extends"] = [metadata["extends"]]
@@ -84,6 +85,10 @@ class TemplateInfo:
     @property
     def default_layer_name(self):
         return self._meta["default_layer_name"]
+
+    @property
+    def default_layer_mounts(self):
+        return self._meta["default_layer_mounts"]
 
     @property
     def extends(self):

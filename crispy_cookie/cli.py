@@ -39,6 +39,18 @@ def dict_without_keys(d: dict, *keys):
     return d
 
 
+def move_to_layers(root, layer_name, folders_to_layer):
+    for folder in folders_to_layer:
+        folder = root / folder
+        if folder.is_dir():
+            # XXX: This fails if the directory already has a "suffix".  Does this happen?
+            folder_d = folder.with_suffix(".d")
+            layer_dest = folder_d / layer_name
+            msg = "Layer move:  {} -> {}  ".format(folder, layer_dest)
+            folder_d.mkdir()
+            folder.replace(layer_dest)
+
+
 def do_list(template_collection: TemplateCollection, args):
     print("Known templates:")
     for n in template_collection.list_templates():
@@ -65,6 +77,8 @@ def do_config(template_collection: TemplateCollection, args):
 
     shared_args = {}
 
+    layer_mounts = doc["layer_mounts"] = []
+
     for template_name in templates:
         print(f"*** Handing template {template_name} ***")
         tmp = template_collection.get_template(template_name)
@@ -75,6 +89,7 @@ def do_config(template_collection: TemplateCollection, args):
         if n > 1:
             layer_name += f"-{n}"
 
+        layer_mounts.extend(l for l in tmp.default_layer_mounts if l not in layer_mounts)
         '''
         # Prompt user
         layer_name_prompt = input(f"Layer name?  [{layer_name}] ")
@@ -182,6 +197,7 @@ def generate_layer(template: TemplateInfo, layer: dict, tmp_path: Path, repo_pat
     out_dir.mkdir(parents=True)
     template_path = str(template.path)
     context["cookiecutter"]["_template"] = f"{repo_path}/{template.path.name}"
+    context["cookiecutter"]["_layer"] = layer['layer_name']
     # Run cookiecutter in a temporary directory
     project_dir = generate_files(template_path, context, output_dir=str(out_dir))
     #out_projects = [i for i in out_dir.iterdir() if i.is_dir()]
@@ -260,16 +276,28 @@ def do_build(template_collection: TemplateCollection, args):
                 folder_name = output_folder.absolute().name if output_folder.name == "" else output_folder
                 sys.stderr.write(f"Overwriting output directory {folder_name}, as requested.\n")
             else:
+                sys.stderr.write(" *******************  ABORT  *******************\n\n")
                 sys.stderr.write(f"Output directory {output_folder.absolute()} already exists.  "
                                  "Refusing to overwrite.\n")
+                sys.stderr.write("\n")
                 sys.exit(1)
+
+        mount_points = config.get("layer_mounts", [])
+        if mount_points:
+            print(f"Applying project mount points:  {mount_points}")
+            for i, layer_dir in enumerate(layer_dirs):
+                layer_info = layers[i]
+                layer_name = layer_info["layer_name"]
+                move_to_layers(layer_dir, layer_name, mount_points)
+        else:
+            print("No layers have been defined.  To enable this, add 'layer_mounts' to the configuration file.")
 
         print("Combining cookiecutter layers")
         # Combine all cookiecutter outputs into a single location
         # XXX: Eventually make this a file system move (rename) opteration; faster than copying all the files
         for i, layer_dir in enumerate(layer_dirs):
             layer_info = layers[i]
-            layer_name = layer_info["name"]
+            layer_name = layer_info["layer_name"]
             _copy_tree(layer_dir, stage_folder, layer_info=layer_name)
 
         print(f"Copying generated files to {output_folder}")
