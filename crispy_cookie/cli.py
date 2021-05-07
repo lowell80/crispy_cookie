@@ -96,7 +96,6 @@ def do_config(template_collection: TemplateCollection, args):
         if layer_name_prompt:
             layer_name = layer_name_prompt
         '''
-        context["layer"] = layer_name
         print(f"{template_name} {n}:  layer={layer_name}"
               #      f"  Context:  {context}"
               )
@@ -156,6 +155,13 @@ def no_print(*a, **kw):
 _print = print
 
 
+def is_template(value):
+    try:
+        return "{{" in value
+    except TypeError:
+        return False
+
+
 def generate_layer(template: TemplateInfo, layer: dict, tmp_path: Path, repo_path: str, inherited_vars: dict = None, verbose: bool = False):
     data = layer["cookiecutter"]
     context = {"cookiecutter": data}
@@ -177,7 +183,7 @@ def generate_layer(template: TemplateInfo, layer: dict, tmp_path: Path, repo_pat
                 # earlier layer's data after the fact.  Isn't mutable fun?!?
                 value = deepcopy(inherited_vars[key])
                 print(f"Inheriting '{key}' from prior layer.")
-            elif "{{" in value:
+            elif is_template(value):
                 expanded_value = render_variable(env, value, data)
                 ## expanded_value = env.from_string(value).render(data)
                 print(f"Missing config for '{key}', using default value of {expanded_value} rendered from {value}")
@@ -186,6 +192,9 @@ def generate_layer(template: TemplateInfo, layer: dict, tmp_path: Path, repo_pat
                 # Prevent reporting _extensions and so on...
                 pass
             else:
+                if isinstance(value, list):
+                    # Pick default item in the array
+                    value = value[0]
                 print(f"Missing config for '{key}', using default value of {value}")
             defaulted_at_runtime.append(key)
             data[key] = value
