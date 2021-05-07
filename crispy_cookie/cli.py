@@ -245,10 +245,10 @@ def do_build(template_collection: TemplateCollection, args):
             layer_dirs.append(layer_dir)
             print("")
 
-        top_level_names = [ld.name for ld in layer_dirs]
-        if len(set(top_level_names)) > 1:
+        top_level_names = set(ld.name for ld in layer_dirs)
+        if len(top_level_names) > 1:
             raise ValueError(f"Found inconsistent top-level names of generated folders... {top_level_names}")
-        top_level = top_level_names[0]
+        top_level = top_level_names.pop()
 
         stage_folder = tmpdir_path / top_level
 
