@@ -10,7 +10,7 @@ from copy import deepcopy
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from cookiecutter.environment import StrictEnvironment
+from cookiecutter.environment import Environment, StrictEnvironment
 from cookiecutter.generate import generate_files
 from cookiecutter.prompt import prompt_for_config, render_variable
 from cookiecutter.vcs import clone
@@ -162,6 +162,24 @@ def is_template(value):
         return False
 
 
+def nested_expand_missing(data: dict, context: dict, template: TemplateInfo, inherited_vars: dict, env: Environment, path=()):
+    if isinstance(data, dict):
+        output = {}
+        for (key, value) in data.items():
+            if is_template(key):
+                old_key = key
+                key = render_variable(env, key, context)
+                print("Expanding {old_key} to {key}")
+            value = nested_expand_missing(value, context, template, inherited_vars, env, path + (key,))
+            output[key] = value
+        return output
+    elif isinstance(data, list):
+        return [nested_expand_missing(d, context, template, inherited_vars, env, path + (i,)) for (i, d) in enumerate(data)]
+    elif is_template(data):
+        return render_variable(env, data, context)
+    return data
+
+
 def generate_layer(template: TemplateInfo, layer: dict, tmp_path: Path, repo_path: str, inherited_vars: dict = None, verbose: bool = False):
     data = layer["cookiecutter"]
     context = {"cookiecutter": data}
@@ -185,17 +203,17 @@ def generate_layer(template: TemplateInfo, layer: dict, tmp_path: Path, repo_pat
                 print(f"Inheriting '{key}' from prior layer.")
             elif is_template(value):
                 expanded_value = render_variable(env, value, data)
-                ## expanded_value = env.from_string(value).render(data)
-                print(f"Missing config for '{key}', using default value of {expanded_value} rendered from {value}")
                 value = expanded_value
             elif key.startswith("_"):
                 # Prevent reporting _extensions and so on...
                 pass
-            else:
-                if isinstance(value, list):
-                    # Pick default item in the array
-                    value = value[0]
+            elif isinstance(value, list):
+                # Pick default item in the array
+                value = value[0]
                 print(f"Missing config for '{key}', using default value of {value}")
+            elif isinstance(value, dict):
+                print(f"Missing config for '{key}', using nested expansion technique...")
+                value = nested_expand_missing(value, data, template, inherited_vars, env, (key,))
             defaulted_at_runtime.append(key)
             data[key] = value
 
