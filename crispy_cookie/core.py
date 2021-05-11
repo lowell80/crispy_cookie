@@ -37,7 +37,7 @@ class TemplateInfo:
         if not self.context_file.is_file():
             raise TemplateError(f"{self.context_file} is not a file!")
         if not self.metadata_file.is_file():
-            raise TemplateError(f"{self.metadat_file} is not present.  "
+            raise TemplateError(f"{self.metadata_file} is not present.  "
                                 "This directory is not a crispycookie template.")
         candidates = [p for p in path.glob("*{{*") if p.is_dir()]
         if not candidates:
