@@ -21,7 +21,6 @@ from .core import TemplateCollection, TemplateError, TemplateInfo
 HIDDEN_VAR = re.compile(r"^_.*")
 
 DO_NOT_INHERIT = [
-    "layer",
     HIDDEN_VAR,
 ]
 
@@ -89,7 +88,8 @@ def do_config(template_collection: TemplateCollection, args):
         if n > 1:
             layer_name += f"-{n}"
 
-        layer_mounts.extend(l for l in tmp.default_layer_mounts if l not in layer_mounts)
+        layer_mounts.extend(l for l in tmp.default_layer_mounts
+                            if l not in layer_mounts)
         '''
         # Prompt user
         layer_name_prompt = input(f"Layer name?  [{layer_name}] ")
@@ -162,7 +162,8 @@ def is_template(value):
         return False
 
 
-def nested_expand_missing(data: dict, context: dict, template: TemplateInfo, inherited_vars: dict, env: Environment, path=()):
+def nested_expand_missing(data: dict, context: dict, template: TemplateInfo,
+                          inherited_vars: dict, env: Environment, path=()):
     if isinstance(data, dict):
         output = {}
         for (key, value) in data.items():
@@ -174,15 +175,21 @@ def nested_expand_missing(data: dict, context: dict, template: TemplateInfo, inh
             output[key] = value
         return output
     elif isinstance(data, list):
-        return [nested_expand_missing(d, context, template, inherited_vars, env, path + (i,)) for (i, d) in enumerate(data)]
+        return [nested_expand_missing(d, context, template, inherited_vars, env, path + (i,))
+                for (i, d) in enumerate(data)]
     elif is_template(data):
         return render_variable(env, data, context)
     return data
 
 
-def generate_layer(template: TemplateInfo, layer: dict, tmp_path: Path, repo_path: str, inherited_vars: dict = None, verbose: bool = False):
+def generate_layer(template: TemplateInfo, layer: dict, crispy_var: dict,
+                   tmp_path: Path, repo_path: str, inherited_vars: dict = None,
+                   verbose: bool = False):
     data = layer["cookiecutter"]
-    context = {"cookiecutter": data}
+    context = {
+        "cookiecutter": data,
+        "crispycookie": crispy_var
+    }
     env = StrictEnvironment(context=context)
 
     if verbose:
@@ -224,7 +231,7 @@ def generate_layer(template: TemplateInfo, layer: dict, tmp_path: Path, repo_pat
     out_dir.mkdir(parents=True)
     template_path = str(template.path)
     context["cookiecutter"]["_template"] = f"{repo_path}/{template.path.name}"
-    context["cookiecutter"]["_layer"] = layer['layer_name']
+    context["crispycookie"]["layer_name"] = layer['layer_name']
     # Run cookiecutter in a temporary directory
     project_dir = generate_files(template_path, context, output_dir=str(out_dir))
     #out_projects = [i for i in out_dir.iterdir() if i.is_dir()]
@@ -242,10 +249,15 @@ def generate_layer(template: TemplateInfo, layer: dict, tmp_path: Path, repo_pat
         if block:
             print(f"Preventing explicit retention of {key} because {block}")
             data.pop(key)
-        elif key.startswith("_"):
-            pass
         else:
             print(f"Retaining {key} because it was explicitly set")
+
+    # Remove vars that we added
+    context["cookiecutter"].pop("_template")
+
+    # To address backwards compatibility with my templates
+    if "_template_version" in context["cookiecutter"]:
+        del context["cookiecutter"]["_template_version"]
 
     if inherited_vars is not None:
         inherited_vars.update(dict_without_keys(data, *DO_NOT_INHERIT))
@@ -266,7 +278,8 @@ def do_build(template_collection: TemplateCollection, args):
     else:
         config_file = output / ".crispycookie.json"
         if not config_file.is_file():
-            print(f"Missing {config_file} file.  Refusing to rebuild {output.name}", file=sys.stderr)
+            print(f"Missing {config_file} file.  "
+                  "Refusing to rebuild {output.name}", file=sys.stderr)
             return 1
         print(f"Regenerating a project {output.name} from existing {config_file.name}")
         # This seems silly, but to keep with the existing convention
@@ -277,13 +290,27 @@ def do_build(template_collection: TemplateCollection, args):
     layers = config["layers"]
     inheritance_store = {}
 
+    if "layer_mounts" in config:
+        mount_points = config["layer_mounts"]
+    else:
+        print("No layers have been defined.  To enable this, add "
+              "'layer_mounts' to the configuration file.")
+        mount_points = []
+
+    # These are available as {{ crispycookie.layer_mounts }};
+    # For backwards compatibility with purse cookiecutter, use:
+    #   {{ crispycookie.layer_mounts | default([]) }}
+    crispycookie_var = {
+        "layer_mounts": mount_points,
+    }
+
     with TemporaryDirectory() as tmp_dir:
         tmpdir_path = Path(tmp_dir)
         layer_dirs = []
         for layer in layers:
             print(f"EXECUTING cookiecutter {layer['name']} template for layer {layer['layer_name']}")
             template = template_collection.get_template(layer["name"])
-            layer_dir = generate_layer(template, layer, tmpdir_path, args.repo,
+            layer_dir = generate_layer(template, layer, crispycookie_var, tmpdir_path, args.repo,
                                        inherited_vars=inheritance_store, verbose=verbose)
             layer_dirs.append(layer_dir)
             print("")
@@ -309,15 +336,12 @@ def do_build(template_collection: TemplateCollection, args):
                 sys.stderr.write("\n")
                 sys.exit(1)
 
-        mount_points = config.get("layer_mounts", [])
         if mount_points:
             print(f"Applying project mount points:  {mount_points}")
             for i, layer_dir in enumerate(layer_dirs):
                 layer_info = layers[i]
                 layer_name = layer_info["layer_name"]
                 move_to_layers(layer_dir, layer_name, mount_points)
-        else:
-            print("No layers have been defined.  To enable this, add 'layer_mounts' to the configuration file.")
 
         print("Combining cookiecutter layers")
         # Combine all cookiecutter outputs into a single location
@@ -335,6 +359,10 @@ def do_build(template_collection: TemplateCollection, args):
             if clean_var in layer["cookiecutter"]:
                 del layer["cookiecutter"][clean_var]
 
+    config["source"] = {
+        "repo": args.repo,
+        "rev": args.checkout,
+    }
     config["tool_info"] = {
         "program": "CrispyCookie",
         "version": __version__,
