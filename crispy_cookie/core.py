@@ -14,6 +14,8 @@ class TemplateCollection:
     def __init__(self, root: Path):
         self.root = root
         self._templates = {}
+        self.repo = None
+        self.rev = None
 
     def get_template(self, name):
         if name not in self._templates:

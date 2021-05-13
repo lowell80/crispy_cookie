@@ -287,6 +287,16 @@ def do_build(template_collection: TemplateCollection, args):
         with open(config_file) as f:
             config = json.load(f)
 
+    build_project(template_collection, output_folder, config,
+                  project_parent=output,
+                  verbose=verbose, overwrite=args.overwrite)
+
+
+def build_project(template_collection: TemplateCollection, project_dir: Path,
+                  config: dict, project_parent: Path = None,
+                  verbose: bool = False, overwrite: bool = False):
+    # XXX: Figure out a better way to handle project_dir / project_parent
+
     layers = config["layers"]
     inheritance_store = {}
 
@@ -308,30 +318,37 @@ def do_build(template_collection: TemplateCollection, args):
         tmpdir_path = Path(tmp_dir)
         layer_dirs = []
         for layer in layers:
-            print(f"EXECUTING cookiecutter {layer['name']} template for layer {layer['layer_name']}")
+            print(f"EXECUTING cookiecutter {layer['name']} template for layer "
+                  f"{layer['layer_name']}")
             template = template_collection.get_template(layer["name"])
-            layer_dir = generate_layer(template, layer, crispycookie_var, tmpdir_path, args.repo,
-                                       inherited_vars=inheritance_store, verbose=verbose)
+            layer_dir = generate_layer(template, layer, crispycookie_var,
+                                       tmpdir_path, template_collection.repo,
+                                       inherited_vars=inheritance_store,
+                                       verbose=verbose)
             layer_dirs.append(layer_dir)
             print("")
 
         top_level_names = set(ld.name for ld in layer_dirs)
         if len(top_level_names) > 1:
-            raise ValueError(f"Found inconsistent top-level names of generated folders... {top_level_names}")
+            raise ValueError(f"Found inconsistent top-level names of generated "
+                             f"folders... {top_level_names}")
         top_level = top_level_names.pop()
 
         stage_folder = tmpdir_path / top_level
 
-        if output_folder is None:
-            output_folder = output / top_level
+        if project_dir is None:
+            project_dir = project_parent / top_level
 
-        if output_folder.is_dir():
-            if args.overwrite:
-                folder_name = output_folder.absolute().name if output_folder.name == "" else output_folder
+        if project_dir.is_dir():
+            if overwrite:
+                if project_dir.name == "":
+                    folder_name = project_dir.absolute().name
+                else:
+                    folder_name = project_dir
                 sys.stderr.write(f"Overwriting output directory {folder_name}, as requested.\n")
             else:
                 sys.stderr.write(" *******************  ABORT  *******************\n\n")
-                sys.stderr.write(f"Output directory {output_folder.absolute()} already exists.  "
+                sys.stderr.write(f"Output directory {project_dir.absolute()} already exists.  "
                                  "Refusing to overwrite.\n")
                 sys.stderr.write("\n")
                 sys.exit(1)
@@ -351,8 +368,8 @@ def do_build(template_collection: TemplateCollection, args):
             layer_name = layer_info["layer_name"]
             _copy_tree(layer_dir, stage_folder, layer_info=layer_name)
 
-        print(f"Copying generated files to {output_folder}")
-        _copy_tree(stage_folder, output_folder)
+        print(f"Copying generated files to {project_dir}")
+        _copy_tree(stage_folder, project_dir)
 
     for layer in layers:
         for clean_var in ["_extensions"]:
@@ -360,15 +377,79 @@ def do_build(template_collection: TemplateCollection, args):
                 del layer["cookiecutter"][clean_var]
 
     config["source"] = {
-        "repo": args.repo,
-        "rev": args.checkout,
+        "repo": template_collection.repo,
+        "rev": template_collection.rev,
     }
     config["tool_info"] = {
         "program": "CrispyCookie",
         "version": __version__,
     }
-    with open(output_folder / ".crispycookie.json", "w") as fp:
+    with open(project_dir / ".crispycookie.json", "w") as fp:
         json.dump(config, fp, indent=4)
+
+
+def get_crispycookie_source(p):
+    with open(p) as fp:
+        config = json.load(fp)
+    try:
+        s = config["source"]
+        return s["repo"], s["rev"]
+    except KeyError:
+        return None
+
+
+def do_update(args):
+    from .rebase import upgrade_project
+    project_dir = Path(args.project)
+    project_config = project_dir / ".crispycookie.json"
+    cli_config = Path(args.config) if args.config else None
+
+    if not args.branch:
+        print(f"Missing template-only branch name.", file=sys.stderr)
+        return 1
+
+    print(f"Project file:  {project_config}")
+    if not project_dir.is_dir():
+        print(f"Invalid project directory {project_dir}", file=sys.stderr)
+        return 1
+
+    project_source = cli_source = None
+    if cli_config:
+        if cli_config.is_file():
+            cli_source = get_crispycookie_source(cli_config)
+        else:
+            print(f"Missing configuration file {cli_config}", file=sys.stderr)
+            return 3
+
+    if project_config.is_file():
+        project_source = get_crispycookie_source(project_config)
+    else:
+        if not cli_source:
+            print(f"Missing project configuration file: {project_config}  "
+                  "Use '--config' to use an alternate crispycookie.json file.")
+            return 3
+
+    # XXX: Check to see if branch exists?
+
+    if cli_source and project_source:
+        print(f"Overridding repo details:  {project_source} with {cli_source}")
+        source = cli_source
+        config_file = cli_config
+    elif project_source:
+        print(f"Using project defaults:  {project_source}")
+        source = project_source
+        config_file = project_config
+    elif cli_source:
+        print(f"Using CLI values to bootstrap project:  {cli_source}")
+        source = cli_source
+        config_file = cli_config
+    else:
+        raise AssertionError("This shouldn't happen")
+
+    repo, checkout = source
+    tc = get_local_repo(repo, checkout)
+
+    upgrade_project(tc, project_dir, args.branch, config_file, do_build)
 
 
 def _copy_tree(src: Path, dest: Path, layer_info=None):
@@ -386,6 +467,29 @@ def _copy_tree(src: Path, dest: Path, layer_info=None):
             raise ValueError(f"Unsupported file type {p}")
 
 
+def get_local_repo(repo: str, checkout: str):
+    abbreviations = {}
+
+    local_clone_dir = "~/.crispy_cookie/repos"
+
+    # Try local directory first.  (is_dir() may fail with git url)
+    template_dir = None
+    try:
+        if Path(repo).expanduser().is_dir():
+            template_dir = repo
+    except OSError:
+        pass
+
+    if not template_dir:
+        # Assume remote repository
+        template_dir = clone(repo, checkout, local_clone_dir, True)
+
+    tc = TemplateCollection(Path(template_dir))
+    tc.repo = repo
+    tc.rev = checkout
+    return tc
+
+
 def main():
     def add_repo_args(parser):
         parser.add_argument("repo", help="Path to local or remote repository "
@@ -393,12 +497,13 @@ def main():
         parser.add_argument("-c", "--checkout", help="Branch, tag, or commit "
                             "to checkout from git repository.")
     parser = ArgumentParser()
-    parser.set_defaults(function=None)
+    parser.set_defaults(function=None, do_repo_prep=True)
     parser.add_argument('--version', action='version',
                         version='%(prog)s {version}'.format(version=__version__))
 
     subparsers = parser.add_subparsers()
 
+    # COMMAND:  crispy_cookie config
     config_parser = subparsers.add_parser(
         "config",
         description="Make a fresh configuration based on named template layers")
@@ -414,18 +519,21 @@ def main():
     config_parser.add_argument("-o", "--output", type=FileType("w"),
                                default=sys.stdout)
 
+    # COMMAND:  crispy_cookie list
     list_parser = subparsers.add_parser("list",
                                         description="List available template layers")
     list_parser.set_defaults(function=do_list)
     add_repo_args(list_parser)
 
+    # COMMAND:  crispy_cookie build
     build_parser = subparsers.add_parser("build",
                                          description="Build from a config file")
     build_parser.set_defaults(function=do_build)
     add_repo_args(build_parser)
     build_parser.add_argument("--config", type=FileType("r"),
-                              help="JSON config file.  Needed the first time "
-                              "a project is built.")
+                              help="JSON config file.  "
+                              "After the project the configuration is saved to "
+                              "'.crispycookie.json' in the project folder.")
     build_parser.add_argument("-o", "--output",
                               default=".", metavar="DIR",
                               help="Top-level output directory.  Or the project "
@@ -434,29 +542,35 @@ def main():
     build_parser.add_argument("--verbose", action="store_true", default=False,
                               help="More output for var handling and such")
 
+    # COMMAND:  crispy_cookie update
+    update_parser = subparsers.add_parser(
+        "update",
+        description="Reapply a template with an updated version or configuration")
+    update_parser.set_defaults(function=do_update, do_repo_prep=False)
+    update_parser.add_argument("project", metavar="DIR",
+                               help="Project to be updated.")
+    update_parser.add_argument("--repo", help="Updated path to templates.  By "
+                               "default the same repo will be reused.")
+    update_parser.add_argument("-c", "--checkout", help="Branch, tag, or commit "
+                               "to checkout from git repository.")
+    update_parser.add_argument("--branch", default="cookiecutter",
+                               help="Template-only branch. "
+                               "Defaults to %(default)s")
+    update_parser.add_argument("--config", type=FileType("r"),
+                               help="Explicitly set JSON config file.")
+    update_parser.add_argument("--verbose", action="store_true", default=False,
+                               help="More output for var handling and such")
+
     args = parser.parse_args()
     if args.function is None:
         sys.stderr.write(parser.format_usage())
         sys.exit(1)
 
-    abbreviations = {}
-
-    local_clone_dir = "~/.crispy_cookie/repos"
-
-    # Try local directory first.  (is_dir() may fail with git url)
-    template_dir = None
-    try:
-        if Path(args.repo).expanduser().is_dir():
-            template_dir = args.repo
-    except OSError:
-        pass
-
-    if not template_dir:
-        # Assume remote repository
-        template_dir = clone(args.repo, args.checkout, local_clone_dir, True)
-
-    tc = TemplateCollection(Path(template_dir))
-    return args.function(tc, args)
+    if args.do_repo_prep:
+        tc = get_local_repo(args.repo, args.checkout)
+        return args.function(tc, args)
+    else:
+        return args.function(args)
 
 
 if __name__ == "__main__":
