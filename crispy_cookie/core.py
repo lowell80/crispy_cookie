@@ -1,8 +1,33 @@
 """Main module."""
 
 import json
+import subprocess
 import sys
+from collections import Counter
 from pathlib import Path
+
+GIT_BIN = "git"
+
+
+def _git_stdout(*git_args, repo):
+    args = ["git"]
+    args.extend(git_args)
+    return subprocess.run(args, cwd=repo, stdout=subprocess.PIPE, check=True, text=True).stdout
+
+
+def git_status(repo):
+    c = Counter()
+    stdout = _git_stdout("status", "--porcelain", "--ignored", ".", repo=repo)
+    # XY:  X=index, Y=working tree.   For our simplistic approach we consider them together.
+    for line in stdout.splitlines():
+        state = line[0:2]
+        if state == "??":
+            c["untracked"] += 1
+        elif state == "!!":
+            c["ignored"] += 1
+        else:
+            c["changed"] += 1
+    return c
 
 
 class TemplateError(Exception):
@@ -14,8 +39,8 @@ class TemplateCollection:
     def __init__(self, root: Path):
         self.root = root
         self._templates = {}
-        self.repo = None
-        self.rev = None
+        self._repo = None
+        self._rev = None
 
     def get_template(self, name):
         if name not in self._templates:
@@ -26,6 +51,36 @@ class TemplateCollection:
         templates = [p.parent.name for p in self.root.glob("*/cookiecutter.json")]
         templates.sort()
         return templates
+
+    @property
+    def repo(self) -> str:
+        if not self._repo:
+            remotes = _git_stdout("remote", repo=self.root).splitlines()
+            assert len(remotes) == 1, "Not coded to handle multiple remotes.  Try setting repo explicitly."
+            remote = remotes[0].split()
+            remotes = _git_stdout("remote", "remote", "get-url", remote,
+                                  repo=self.root).splitlines()
+            self._repo = remotes[0].strip()
+        return self._repo
+
+    @repo.setter
+    def repo(self, value: str):
+        self._repo = value
+
+    @property
+    def short_repo(self) -> str:
+        """ Return simplified repo name. """
+        return self.repo.strip("/").split("/")[-1].replace(".git", "")
+
+    @property
+    def rev(self) -> str:
+        if not self._rev:
+            self._rev = _git_stdout("rev-parse", "HEAD", repo=self.root).strip()
+        return self._rev
+
+    @rev.setter
+    def rev(self, value: str):
+        self._rev = value
 
 
 class TemplateInfo:
@@ -60,7 +115,7 @@ class TemplateInfo:
             "ephemeral": [],
         }
         meta["default_layer_name"] = metadata["default_layer_name"]
-        meta["default_layer_mounts"] = metadata["default_layer_mounts"]
+        meta["default_layer_mounts"] = metadata.get("default_layer_mounts", [])
         if "extends" in metadata:
             # Only single values is supported for now, but internally make it a list
             meta["extends"] = [metadata["extends"]]

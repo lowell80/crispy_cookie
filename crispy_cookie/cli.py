@@ -389,8 +389,11 @@ def build_project(template_collection: TemplateCollection, project_dir: Path,
 
 
 def get_crispycookie_source(p):
-    with open(p) as fp:
-        config = json.load(fp)
+    if hasattr(p, "read"):
+        config = json.load(p)
+    else:
+        with open(p) as fp:
+            config = json.load(fp)
     try:
         s = config["source"]
         return s["repo"], s["rev"]
@@ -402,7 +405,7 @@ def do_update(args):
     from .rebase import upgrade_project
     project_dir = Path(args.project)
     project_config = project_dir / ".crispycookie.json"
-    cli_config = Path(args.config) if args.config else None
+    cli_config = args.config if args.config else None
 
     if not args.branch:
         print(f"Missing template-only branch name.", file=sys.stderr)
@@ -415,11 +418,7 @@ def do_update(args):
 
     project_source = cli_source = None
     if cli_config:
-        if cli_config.is_file():
-            cli_source = get_crispycookie_source(cli_config)
-        else:
-            print(f"Missing configuration file {cli_config}", file=sys.stderr)
-            return 3
+        cli_source = get_crispycookie_source(cli_config)
 
     if project_config.is_file():
         project_source = get_crispycookie_source(project_config)
@@ -434,22 +433,30 @@ def do_update(args):
     if cli_source and project_source:
         print(f"Overridding repo details:  {project_source} with {cli_source}")
         source = cli_source
-        config_file = cli_config
+        config_file = cli_config.name
+    elif cli_source:
+        print(f"Using CLI values to bootstrap project:  {cli_source}")
+        source = cli_source
+        config_file = cli_config.name
     elif project_source:
         print(f"Using project defaults:  {project_source}")
         source = project_source
         config_file = project_config
-    elif cli_source:
-        print(f"Using CLI values to bootstrap project:  {cli_source}")
-        source = cli_source
-        config_file = cli_config
     else:
         raise AssertionError("This shouldn't happen")
 
-    repo, checkout = source
-    tc = get_local_repo(repo, checkout)
+    if cli_config:
+        config_file = cli_config.name
+        print(f"Using external config file {config_file} set on command line")
 
-    upgrade_project(tc, project_dir, args.branch, config_file, do_build)
+    repo, checkout = source
+
+    if args.repo:
+        repo = args.repo
+    if args.checkout:
+        checkout = args.checkout
+    tc = get_local_repo(repo, checkout)
+    upgrade_project(tc, project_dir, args.branch, config_file, do_build, remote_ops=args.remote)
 
 
 def _copy_tree(src: Path, dest: Path, layer_info=None):
@@ -560,6 +567,8 @@ def main():
                                help="Explicitly set JSON config file.")
     update_parser.add_argument("--verbose", action="store_true", default=False,
                                help="More output for var handling and such")
+    update_parser.add_argument("--no-remote", dest="remote", action="store_false", default=True,
+                               help="Disable remote git operations.")
 
     args = parser.parse_args()
     if args.function is None:

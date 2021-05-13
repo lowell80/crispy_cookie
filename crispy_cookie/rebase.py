@@ -1,13 +1,12 @@
 import json
 import os
+import sys
 from contextlib import contextmanager
 from pathlib import Path
-from subprocess import PIPE, Popen, check_call, run
+from subprocess import PIPE, Popen, run
 from types import FunctionType
 
-from .core import TemplateCollection, TemplateError, TemplateInfo
-
-GIT_BIN = "git"
+from .core import GIT_BIN, TemplateCollection, TemplateError, TemplateInfo, git_status
 
 
 class GitError(Exception):
@@ -25,15 +24,15 @@ def use_git_worktree(path: Path, worktree_name: str, branch: str):
 
     cwd = os.getcwd()
     try:
-        check_call([GIT_BIN, "worktree", "add", worktree_name, branch],
-                   cwd=os.fspath(path))
+        run([GIT_BIN, "worktree", "add", worktree_name, branch],
+            cwd=os.fspath(path), check=True)
         os.chdir(worktree_dir)
         yield worktree_dir
     finally:
         # Code to release resource, e.g.:
         # git worktree remove worktree_dir --force
-        check_call([GIT_BIN, "worktree", "remove", worktree_name, "--force"],
-                   cwd=os.fspath(path))
+        run([GIT_BIN, "worktree", "remove", worktree_name, "--force"],
+            cwd=os.fspath(path), check=True)
         os.chdir(cwd)
 
 
@@ -45,19 +44,24 @@ def upgrade_project(template_collection: TemplateCollection, project_dir: Path,
     # set working directory to root of repo
     upgrade_worktree_name = "TEMPLATE_UPDATE"
 
+    print(
+        f"Upgrading projet to {template_collection.repo} @ {template_collection.rev} using temporary working tree {upgrade_worktree_name}")
+
     if remote_ops:
         # git fetch --all
-        check_call([GIT_BIN, "fetch", "--all"])
+        run([GIT_BIN, "fetch", "--all"], check=True)
         # XXX: Branch not up-to-date with remote, abort!
 
-    # XXX: Local tree not clean, abort!
-    # git worktree add TEMPLATE_UPDATE cookiecutter
+    status = git_status(project_dir)
+    if status["changed"] > 0:
+        print("Aborting due to local changes.   Run 'git status' for details.", file=sys.stderr)
+        return
 
+    # git worktree add TEMPLATE_UPDATE cookiecutter
     with use_git_worktree(project_dir, "TEMPLATE_UPDATE", branch) as workdir:
         print("Cleaning up existing content")
         # git ls-files | xargs rm
-        proc = Popen([GIT_BIN, "ls-files"], stdout=PIPE)
-        stdout, stderr = proc.communicate()
+        stdout = run([GIT_BIN, "ls-files"], stdout=PIPE, check=True).stdout
         for file_name in stdout.splitlines():
             os.unlink(file_name)
 
@@ -80,10 +84,7 @@ def upgrade_project(template_collection: TemplateCollection, project_dir: Path,
 
         print("Git add")
         # git add . && pre-commit run --all || git add .
-        check_call([GIT_BIN, "add", "--all", "."])
-
-        # XXX: Add while loop to keep running pre-commit and git add until pre-commit returns a 0 exit code.  This needs a limit as well.  Maybe pre-commit exit codes can indicated permanent failure vs temp failure.
-        #     Re-ordering the pre-commit rules to run a given ord has
+        run([GIT_BIN, "add", "--all", "."], check=True)
 
         loop_limit = 3
         while loop_limit:
@@ -97,22 +98,31 @@ def upgrade_project(template_collection: TemplateCollection, project_dir: Path,
             if rc == 0:
                 break
             print("Git add")
-            check_call([GIT_BIN, "add", "--all", "."])
+            run([GIT_BIN, "add", "--all", "."], check=True)
             loop_limit -= 1
         if not loop_limit:
             print("Unable to get pre-commit job to finish successfully after multiple attempts")
             return
 
         # git status
-        check_call([GIT_BIN, "status"])
+        run([GIT_BIN, "status"])
 
-        repo_short = template_collection.repo.split("/")[-1]
-        rev = template_collection.rev
+        status = git_status(".")
+        if status["changed"]:
+            repo_short = template_collection.short_repo
+            rev = template_collection.rev
 
-        print("Commiting....")
-        # git commit -am "Update to cypress-cookiecutter@vX.Y.Z"
-        # Disabling an hooks via --no-verify because any pre-commit work should have been done already by this point.
-        check_call([GIT_BIN, "commit", "--no-verify",
-                    "-m", f"Update to {repo_short}@{rev}"])
-
-    # git push
+            print("Commiting....")
+            # git commit -am "Update to cypress-cookiecutter@vX.Y.Z"
+            # Disabling an hooks via --no-verify because any pre-commit work should have been done already by this point.
+            run([GIT_BIN, "commit", "--no-verify",
+                 "-m", f"Update to {repo_short}@{rev}"], check=True)
+            if remote_ops:
+                # git push
+                run([GIT_BIN, "push"], check=True)
+                print("Project update completed:  Changes pushed to remote")
+            else:
+                print("Project update completed:  Changes committed locally.")
+            print(f"Apply changes by running:    git merge {branch}")
+        else:
+            print("Project update completed:  No changes needed")
