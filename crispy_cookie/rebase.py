@@ -27,12 +27,14 @@ def use_git_worktree(path: Path, worktree_name: str, branch: str):
         run([GIT_BIN, "worktree", "add", worktree_name, branch],
             cwd=os.fspath(path), check=True)
         os.chdir(worktree_dir)
-        yield worktree_dir
+        yield worktree_dir.absolute()
     finally:
-        # Code to release resource, e.g.:
         # git worktree remove worktree_dir --force
-        run([GIT_BIN, "worktree", "remove", worktree_name, "--force"],
-            cwd=os.fspath(path), check=True)
+        if "CRISPYCOOKIE_NO_CLEANUP" in os.environ:
+            print("Skipping cleanup of worktree due to env var.")
+        else:
+            run([GIT_BIN, "worktree", "remove", worktree_name, "--force"],
+                cwd=os.fspath(path), check=True)
         os.chdir(cwd)
 
 
@@ -57,6 +59,10 @@ def upgrade_project(template_collection: TemplateCollection, project_dir: Path,
         print("Aborting due to local changes.   Run 'git status' for details.", file=sys.stderr)
         return
 
+    # Load .crispycookie.json
+    with open(config_file) as fp:
+        config = json.load(fp)
+
     # git worktree add TEMPLATE_UPDATE cookiecutter
     with use_git_worktree(project_dir, "TEMPLATE_UPDATE", branch) as workdir:
         print("Cleaning up existing content")
@@ -71,10 +77,6 @@ def upgrade_project(template_collection: TemplateCollection, project_dir: Path,
                 continue
             if not dirnames and not filenames:
                 os.rmdir(dirpath)
-
-        # Copy in .crispycookie.json (virtually)
-        with open(config_file) as fp:
-            config = json.load(fp)
 
         # XXX: Check to see if crispycookie.json has changed 'git status --porcelain .crispycookie.json (and update commit message accordingly)
         # Show git diff of .crispycookie.json?   (In which case, writing to disk would be helpful)

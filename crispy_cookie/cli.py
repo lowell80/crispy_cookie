@@ -403,7 +403,7 @@ def get_crispycookie_source(p):
 
 def do_update(args):
     from .rebase import upgrade_project
-    project_dir = Path(args.project)
+    project_dir = Path(args.project).absolute()
     project_config = project_dir / ".crispycookie.json"
     cli_config = args.config if args.config else None
 
@@ -433,20 +433,28 @@ def do_update(args):
     if cli_source and project_source:
         print(f"Overridding repo details:  {project_source} with {cli_source}")
         source = cli_source
-        config_file = cli_config.name
+        config_file = Path(cli_config.name)
     elif cli_source:
         print(f"Using CLI values to bootstrap project:  {cli_source}")
         source = cli_source
-        config_file = cli_config.name
+        config_file = Path(cli_config.name)
     elif project_source:
         print(f"Using project defaults:  {project_source}")
         source = project_source
         config_file = project_config
     else:
-        raise AssertionError("This shouldn't happen")
-
+        print("No 'source' setting found")
+        if args.repo and args.checkout:
+            print("MIGRATING:  Using repo & checkout setting explicitly "
+                  "set on the CLI")
+            source = (None, None)
+            config_file = project_config
+        else:
+            print("Please use the '--repo' and '--checkout' settings to "
+                  "trigger a one-time migration.", file=sys.stderr)
+            return
     if cli_config:
-        config_file = cli_config.name
+        config_file = Path(cli_config.name)
         print(f"Using external config file {config_file} set on command line")
 
     repo, checkout = source
