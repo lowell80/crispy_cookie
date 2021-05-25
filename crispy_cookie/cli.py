@@ -12,7 +12,7 @@ from tempfile import TemporaryDirectory
 
 from cookiecutter.environment import Environment, StrictEnvironment
 from cookiecutter.generate import generate_files
-from cookiecutter.prompt import prompt_for_config, render_variable
+from cookiecutter.prompt import prompt_for_config, read_user_variable, render_variable
 from cookiecutter.vcs import clone
 
 from . import __version__
@@ -127,10 +127,10 @@ def do_config(template_collection: TemplateCollection, args):
         # XXX: Should we also skip prompting for inherited variables?
 
         # Prompt the user
+        layer["layer_name"] = read_user_variable("layer_name", layer_name)
         final = prompt_for_config(cc_context)
 
         layer["cookiecutter"] = dict_without_keys(final, HIDDEN_VAR)
-        layer["layer_name"] = final["layer"]
 
         # Update shared args for next layer to inherit from
         shared_args.update(dict_without_keys(final, *DO_NOT_INHERIT))
