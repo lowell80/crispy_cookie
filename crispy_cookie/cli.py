@@ -402,7 +402,7 @@ def get_crispycookie_source(p):
 
 
 def do_update(args):
-    from .rebase import upgrade_project
+    from .rebase import GitError, upgrade_project
     project_dir = Path(args.project).absolute()
     project_config = project_dir / ".crispycookie.json"
     cli_config = args.config if args.config else None
@@ -464,7 +464,11 @@ def do_update(args):
     if args.checkout:
         checkout = args.checkout
     tc = get_local_repo(repo, checkout)
-    upgrade_project(tc, project_dir, args.branch, config_file, do_build, remote_ops=args.remote)
+    try:
+        upgrade_project(tc, project_dir, args.branch, config_file, do_build, remote_ops=args.remote)
+    except GitError as e:
+        print(e, file=sys.stderr)
+        sys.exit(1)
 
 
 def _copy_tree(src: Path, dest: Path, layer_info=None):

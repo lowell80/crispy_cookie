@@ -3,7 +3,7 @@ import os
 import sys
 from contextlib import contextmanager
 from pathlib import Path
-from subprocess import PIPE, Popen, run
+from subprocess import PIPE, CalledProcessError, Popen, run
 from types import FunctionType
 
 from .core import GIT_BIN, TemplateCollection, TemplateError, TemplateInfo, git_status
@@ -29,13 +29,17 @@ def use_git_worktree(path: Path, worktree_name: str, branch: str):
         os.chdir(worktree_dir)
         yield worktree_dir.absolute()
     finally:
+        os.chdir(cwd)
         # git worktree remove worktree_dir --force
         if "CRISPYCOOKIE_NO_CLEANUP" in os.environ:
             print("Skipping cleanup of worktree due to env var.")
         else:
-            run([GIT_BIN, "worktree", "remove", worktree_name, "--force"],
-                cwd=os.fspath(path), check=True)
-        os.chdir(cwd)
+            try:
+                run([GIT_BIN, "worktree", "remove", worktree_name, "--force"],
+                    cwd=os.fspath(path), check=True)
+            except CalledProcessError as e:
+                print("Failure during worktree cleanup.")
+                raise e
 
 
 def upgrade_project(template_collection: TemplateCollection, project_dir: Path,
@@ -47,7 +51,7 @@ def upgrade_project(template_collection: TemplateCollection, project_dir: Path,
     upgrade_worktree_name = "TEMPLATE_UPDATE"
 
     print(
-        f"Upgrading projet to {template_collection.repo} @ {template_collection.rev} using temporary working tree {upgrade_worktree_name}")
+        f"Upgrading project to {template_collection.repo} @ {template_collection.rev} using temporary working tree {upgrade_worktree_name}")
 
     if remote_ops:
         # git fetch --all
@@ -91,10 +95,6 @@ def upgrade_project(template_collection: TemplateCollection, project_dir: Path,
         loop_limit = 3
         while loop_limit:
             print("Pre-running pre-commit")
-            '''
-            Popen(["pre-commit", "run", "--all"])
-            rc = proc.wait(timeout=30)
-            '''
             rc = run(["pre-commit", "run", "--all"], timeout=30).returncode
             print(f"Completed pre-commit with rc={rc}")
             if rc == 0:
@@ -106,7 +106,7 @@ def upgrade_project(template_collection: TemplateCollection, project_dir: Path,
             print("Unable to get pre-commit job to finish successfully after multiple attempts")
             return
 
-        # git status
+        # git status (uses terminal stdout; for user feedback)
         run([GIT_BIN, "status"])
 
         status = git_status(".")
@@ -121,6 +121,7 @@ def upgrade_project(template_collection: TemplateCollection, project_dir: Path,
                  "-m", f"Update to {repo_short}@{rev}"], check=True)
             if remote_ops:
                 # git push
+                print("git push")
                 run([GIT_BIN, "push"], check=True)
                 print("Project update completed:  Changes pushed to remote")
             else:
