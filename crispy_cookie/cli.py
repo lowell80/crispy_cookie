@@ -60,6 +60,19 @@ def do_config(template_collection: TemplateCollection, args):
     layer_count = Counter()
     doc = {}
     layers = doc["layers"] = []
+
+    known_templates = template_collection.list_templates()
+    unknown_templates = set(args.templates).difference(known_templates)
+    if unknown_templates:
+        from difflib import get_close_matches
+        for ut in unknown_templates:
+            alternates = get_close_matches(ut, known_templates)
+            if alternates:
+                print(f"Unknown template '{ut}''.  Did you mean '{alternates[0]}'?")
+            else:
+                print(f"Unknown template '{ut}''.  Please run the 'list' command")
+        return
+
     print(f"Processing templates named:  {args.templates}")
 
     templates = args.templates[:]
