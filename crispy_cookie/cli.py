@@ -158,7 +158,21 @@ def do_config(template_collection: TemplateCollection, args):
         layers.append(layer)
         print("")
 
-    json.dump(doc, args.output, indent=4)
+    if args.build:
+        try:
+            print("\nStarting project build in current directory\n")
+            build_project(template_collection, project_dir=None,
+                          project_parent=Path("."),
+                          config=doc)
+        except Exception:
+            marker = "~" * 80
+            print(marker)
+            print("Dumping config due to build failure:")
+            json.dump(doc, args.output, indent=4)
+            print(marker)
+            raise
+    else:
+        json.dump(doc, args.output, indent=4)
 
 
 def no_print(*a, **kw):
@@ -548,8 +562,14 @@ def main():
                                "generated template.  Templates will be generated "
                                "in the order given.  The same template can be "
                                "provided multiple times, if desired.")
-    config_parser.add_argument("-o", "--output", type=FileType("w"),
-                               default=sys.stdout)
+
+    cfg_g1_parse = config_parser.add_mutually_exclusive_group()
+    cfg_g1_parse.add_argument("-o", "--output", type=FileType("w"),
+                              default=sys.stdout, help="Output file to store "
+                              "the new configuration.  Defaults to stdout")
+    cfg_g1_parse.add_argument("--build", "-b", action="store_true", default=False,
+                              help="Trigger a build of the new configuration "
+                              "after interactive prompts.")
 
     # COMMAND:  crispy_cookie list
     list_parser = subparsers.add_parser("list",
