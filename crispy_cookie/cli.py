@@ -82,7 +82,8 @@ def do_config(template_collection: TemplateCollection, args):
         extends.update(tmp.extends)
 
     for template_name in extends:
-        templates.insert(0, template_name)
+        if template_name not in templates:
+            templates.insert(0, template_name)
 
     if args.templates != templates:
         print(f"Template list expanded to:  {templates}")
