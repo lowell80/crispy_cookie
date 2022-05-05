@@ -170,6 +170,7 @@ def do_config(template_collection: TemplateCollection, args):
             print(marker)
             print("Dumping config due to build failure:")
             json.dump(doc, args.output, indent=4)
+            print("\n")
             print(marker)
             raise
     else:
