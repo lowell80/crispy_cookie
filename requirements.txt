@@ -1,2 +1,2 @@
-kintyre-splunk-conf>=0.8
+ksconf>=0.11
 cookiecutter>=1.7.1

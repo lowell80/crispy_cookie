@@ -95,7 +95,7 @@ def upgrade_project(template_collection: TemplateCollection, project_dir: Path,
         loop_limit = 3
         while loop_limit:
             print("Pre-running pre-commit")
-            rc = run(["pre-commit", "run", "--all"], timeout=30).returncode
+            rc = run(["pre-commit", "run", "--all"], timeout=300).returncode
             print(f"Completed pre-commit with rc={rc}")
             if rc == 0:
                 break

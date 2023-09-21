@@ -45,7 +45,7 @@ def move_to_layers(root, layer_name, folders_to_layer):
             # XXX: This fails if the directory already has a "suffix".  Does this happen?
             folder_d = folder.with_suffix(".d")
             layer_dest = folder_d / layer_name
-            msg = "Layer move:  {} -> {}  ".format(folder, layer_dest)
+            print(f"Layer move:  {folder} -> {layer_dest}")
             folder_d.mkdir()
             folder.replace(layer_dest)
 
@@ -263,7 +263,7 @@ def generate_layer(template: TemplateInfo, layer: dict, crispy_var: dict,
     context["crispycookie"]["layer_name"] = layer['layer_name']
     # Run cookiecutter in a temporary directory
     project_dir = generate_files(template_path, context, output_dir=str(out_dir))
-    #out_projects = [i for i in out_dir.iterdir() if i.is_dir()]
+    # out_projects = [i for i in out_dir.iterdir() if i.is_dir()]
     # if len(out_projects) > 1:
     #    raise ValueError("Template generated more than one output folder!")
 
@@ -391,7 +391,7 @@ def build_project(template_collection: TemplateCollection, project_dir: Path,
 
         print("Combining cookiecutter layers")
         # Combine all cookiecutter outputs into a single location
-        # XXX: Eventually make this a file system move (rename) opteration; faster than copying all the files
+        # XXX: Eventually make this a file system move (rename) operation; faster than copying all the files
         for i, layer_dir in enumerate(layer_dirs):
             layer_info = layers[i]
             layer_name = layer_info["layer_name"]
@@ -460,7 +460,7 @@ def do_update(args):
     # XXX: Check to see if branch exists?
 
     if cli_source and project_source:
-        print(f"Overridding repo details:  {project_source} with {cli_source}")
+        print(f"Overriding repo details:  {project_source} with {cli_source}")
         source = cli_source
         config_file = Path(cli_config.name)
     elif cli_source:
