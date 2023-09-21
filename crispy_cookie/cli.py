@@ -40,12 +40,12 @@ def dict_without_keys(d: dict, *keys):
 
 def move_to_layers(root, layer_name, folders_to_layer):
     for folder in folders_to_layer:
-        folder = root / folder
+        folder: Path = root / folder
         if folder.is_dir():
             # XXX: This fails if the directory already has a "suffix".  Does this happen?
             folder_d = folder.with_suffix(".d")
             layer_dest = folder_d / layer_name
-            print(f"Layer move:  {folder} -> {layer_dest}")
+            print(f"Layer move:  {folder.relative_to(root.parent)} -> {layer_dest.relative_to(root.parent)}")
             folder_d.mkdir()
             folder.replace(layer_dest)
 

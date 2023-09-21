@@ -3,14 +3,35 @@ import os
 import sys
 from contextlib import contextmanager
 from pathlib import Path
-from subprocess import PIPE, CalledProcessError, Popen, run
+from subprocess import PIPE, CalledProcessError, run
 from types import FunctionType
+from typing import Iterable, Sequence
 
 from .core import GIT_BIN, TemplateCollection, TemplateError, TemplateInfo, git_status
 
 
 class GitError(Exception):
     pass
+
+
+def get_worktree_list(path: Path) -> list[dict]:
+    proc = run([GIT_BIN, "worktree", "list", "--porcelain"],
+               cwd=os.fspath(path), check=True, stdout=PIPE)
+
+    def group_output(feed: Sequence[str]) -> Iterable[dict]:
+        buf = {}
+        for line in feed:
+            line = line.strip()
+            if line:
+                prefix, value = line.split(" ", 1)
+                buf[prefix] = value
+            else:
+                yield buf
+                buf = {}
+        if buf:
+            yield buf
+
+    return list(group_output(proc.stdout.decode("utf-8").splitlines()))
 
 
 @contextmanager
@@ -21,6 +42,14 @@ def use_git_worktree(path: Path, worktree_name: str, branch: str):
     if worktree_dir.is_dir():
         raise GitError(f"Worktree dir already exists.  "
                        f"Please remove {worktree_dir} and try again.")
+
+    for worktree_entry in get_worktree_list(path):
+        branch_ref = worktree_entry.get("branch", "")
+        existing_worktree_path = worktree_entry.get("worktree", "unknown")
+        # print(f"Found existing worktree {branch_ref} {existing_worktree_path}")
+        if branch_ref.endswith(branch):
+            raise GitError(f"Worktree using branch {branch} already exists. "
+                           f" Please remove {existing_worktree_path} and try again.")
 
     cwd = os.getcwd()
     try:
